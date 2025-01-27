@@ -89,17 +89,21 @@ def create_styled_prompt(question):
     )
 
 def collect_files_with_extension(directory, extensions, recursive):
+    # Convert all extensions to lowercase for case-insensitive comparison
+    extensions = [ext.lower() for ext in extensions]
     files = []
+    
     if recursive:
         for root, _, filenames in os.walk(directory):
             if "FunForge" in root:  
                 continue
             for filename in filenames:
-                if any(filename.endswith(ext) for ext in extensions):
+                # Convert the file's extension to lowercase for comparison
+                if any(filename.lower().endswith(ext) for ext in extensions):
                     files.append(Path(root) / filename)
     else:
         for entry in os.scandir(directory):
-            if entry.is_file() and any(entry.name.endswith(ext) for ext in extensions):
+            if entry.is_file() and any(entry.name.lower().endswith(ext) for ext in extensions):
                 files.append(Path(entry.path))
     return files
 
@@ -182,8 +186,17 @@ def is_resolution_difference(name1, name2):
 def extract_with_progress(archive_path, extract_dir, password=None):
     """Extract an archive with progress bar and proper password handling."""
     # Increase chunk size for better performance
-    CHUNK_SIZE = 1024 * 1024  # Increase to 1MB chunks (from 64KB)
+    CHUNK_SIZE = 1024 * 1024  # 1MB chunks
     BUFFER_SIZE = 8192 * 1024  # 8MB buffer size
+    
+    def should_extract_file(filename):
+        """Helper function to determine if a file should be extracted."""
+        filename_lower = filename.lower()
+        # Check all supported extensions
+        return (any(filename_lower.endswith(ext.lower()) for ext in VIDEO_EXTENSIONS) or
+                filename_lower.endswith('.funscript') or  # Main funscript
+                any(filename_lower.endswith(ext.lower()) for ext in MULTI_AXIS_EXTENSIONS) or  # Multi-axis scripts
+                any(filename_lower.endswith(ext.lower()) for ext in SUBTITLE_EXTENSIONS))
     
     try:
         if archive_path.suffix.lower() == ".zip":
@@ -193,7 +206,9 @@ def extract_with_progress(archive_path, extract_dir, password=None):
                 if is_encrypted and not password:
                     return False, extract_dir, "encrypted archive"
 
-                total_size = sum(info.file_size for info in archive.filelist)
+                # Filter files to extract before calculating total size
+                files_to_extract = [f for f in archive.filelist if should_extract_file(f.filename)]
+                total_size = sum(info.file_size for info in files_to_extract)
                 extracted_size = 0
 
                 with Progress(
@@ -212,7 +227,7 @@ def extract_with_progress(archive_path, extract_dir, password=None):
                     with ThreadPoolExecutor(max_workers=4) as executor:
                         futures = []
                         
-                        for file_info in archive.filelist:
+                        for file_info in files_to_extract:
                             try:
                                 source = archive.open(file_info, pwd=password.encode() if password else None)
                                 target_path = Path(extract_dir) / file_info.filename
@@ -243,7 +258,9 @@ def extract_with_progress(archive_path, extract_dir, password=None):
                 if is_encrypted and not password:
                     return False, extract_dir, "encrypted archive"
 
-                total_size = sum(info.file_size for info in archive.infolist())
+                # Filter files to extract before calculating total size
+                files_to_extract = [f for f in archive.infolist() if should_extract_file(f.filename)]
+                total_size = sum(info.file_size for info in files_to_extract)
                 extracted_size = 0
 
                 with Progress(
@@ -262,7 +279,7 @@ def extract_with_progress(archive_path, extract_dir, password=None):
                     with ThreadPoolExecutor(max_workers=4) as executor:
                         futures = []
 
-                        for file_info in archive.infolist():
+                        for file_info in files_to_extract:
                             try:
                                 source = archive.open(file_info, pwd=password if password else None)
                                 target_path = Path(extract_dir) / file_info.filename
